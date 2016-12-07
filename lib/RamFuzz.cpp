@@ -442,16 +442,21 @@ void RamFuzz::gen_concrete_methods(const CXXRecordDecl *C,
         const auto pty = rety->getPointeeType();
         if (pty->isScalarType()) {
           const auto s = pty.stream(prtpol);
-          outc << "  return new " << s << "(ramfuzzgenuniquename.any<" << s
-               << ">());\n";
+          outc << "  ramfuzzgenuniquename.push_loc(__LINE__);\n";
+          outc << "  const auto rndval = ramfuzzgenuniquename.any<" << s
+               << ">();\n";
+          outc << "  ramfuzzgenuniquename.pop_loc();\n";
+          outc << "  return new " << s << "(rndval);\n";
           register_enum(*pty);
         } else if (const auto ptcls = pty->getAsCXXRecordDecl()) {
           gen_object(ptcls, "rfctl", "ramfuzzgenuniquename",
                      Twine(ns) + "::concrete_impl::" + M->getName(), "nullptr");
           outc << "  return rfctl.release();\n";
         } else if (pty->isVoidType()) {
+          outc << "  ramfuzzgenuniquename.push_loc(__LINE__);\n";
           outc << "  void* p;\n";
           outc << "  ramfuzzgenuniquename.set_any(p);\n";
+          outc << "  ramfuzzgenuniquename.pop_loc();\n";
           outc << "  return p;\n";
         } else
           assert(0 && "TODO: handle other types.");
@@ -470,8 +475,11 @@ void RamFuzz::gen_concrete_methods(const CXXRecordDecl *C,
         } else
           assert(0 && "TODO: handle other types.");
       } else if (rety->isScalarType()) {
-        outc << "  return ramfuzzgenuniquename.any<" << rfstream(rety, prtpol)
-             << ">();\n";
+        outc << "  ramfuzzgenuniquename.push_loc(__LINE__);\n";
+        outc << "  const auto rndval = ramfuzzgenuniquename.any<"
+             << rfstream(rety, prtpol) << ">();\n";
+        outc << "  ramfuzzgenuniquename.pop_loc();\n";
+        outc << "  return rndval;\n";
         register_enum(*rety);
       } else if (const auto retcls = rety->getAsCXXRecordDecl()) {
         gen_object(retcls, "rfctl", "ramfuzzgenuniquename",
@@ -596,6 +604,7 @@ void RamFuzz::gen_method(const Twine &rfname, const CXXMethodDecl *M,
   auto ramcount = 0u;
   for (const auto &ram : M->parameters()) {
     ramcount++;
+    outc << "  g.push_loc(__LINE__);\n";
     // Type of the generated variable:
     auto vartype = ram->getType()
                        .getNonReferenceType()
@@ -629,6 +638,7 @@ void RamFuzz::gen_method(const Twine &rfname, const CXXMethodDecl *M,
         outc << "p" << i - 1;
       outc << ");\n";
     }
+    outc << "  g.pop_loc();\n";
   }
   if (isa<CXXConstructorDecl>(M)) {
     outc << "  --calldepth;\n";

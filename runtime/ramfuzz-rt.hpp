@@ -66,6 +66,13 @@ namespace runtime {
 /// During a replay, something needs to tell us _which_ region(s) to
 /// skip/regenerate during replay; that something is the input-log control file.
 /// See the skip class for that file's format.
+///
+/// Another log being generated has a ".t" filename and logs which source-code
+/// location generated which random value.  This can be used to train an AI
+/// algorithm to distinguish between valid and invalid ram values.  Each line in
+/// the ".t" (or training) log contains the source location and the value
+/// generated.  Locations are marked by user code invoking push_loc() and
+/// pop_loc().
 class gen {
   /// Are we generating values or replaying a previous run?
   enum { generate, replay } runmode;
@@ -74,13 +81,15 @@ public:
   /// Values will be generated and logged in ologname (with index in
   /// ologname.i).
   gen(const std::string &ologname = "fuzzlog")
-      : runmode(generate), olog(ologname), olog_index(ologname + ".i") {}
+      : runmode(generate), olog(ologname), olog_index(ologname + ".i"),
+        olog_train(ologname + ".t"), locations(1, 0) {}
 
   /// Values will be replayed from ilogname (controlled by ilogname.c) and
   /// logged into ologname.
   gen(const std::string &ilogname, const std::string &ologname)
       : runmode(replay), olog(ologname), olog_index(ologname + ".i"),
-        ilog(ilogname), ilog_ctl(ilogname + ".c"), to_skip(ilog_ctl) {}
+        olog_train(ologname + ".t"), ilog(ilogname), ilog_ctl(ilogname + ".c"),
+        to_skip(ilog_ctl), locations(1, 0) {}
 
   /// Interprets kth command-line argument.  If the argument exists (ie, k <
   /// argc), values will be replayed from file named argv[k], controlled by
@@ -91,7 +100,7 @@ public:
   /// This makes it convenient for main(argc, argv) to invoke gen(argc, argv),
   /// yielding a program that either generates its values (if no command-line
   /// arguments) or replays the log file named by its first argument.
-  gen(int argc, const char *const *argv, size_t k = 1) {
+  gen(int argc, const char *const *argv, size_t k = 1) : locations(1, 0) {
     if (k < argc && argv[k]) {
       runmode = replay;
       const std::string argstr(argv[k]);
@@ -100,10 +109,12 @@ public:
       to_skip = skip(ilog_ctl);
       olog.open(argstr + "+");
       olog_index.open(argstr + "+.i");
+      olog_train.open(argstr + "+.t");
     } else {
       runmode = generate;
       olog.open("fuzzlog");
       olog_index.open("fuzzlog.i");
+      olog_train.open("fuzzlog.t");
     }
   }
 
@@ -173,6 +184,23 @@ public:
                 int>::type = 0>
   void assign(RamFuzzControl &ctl, decltype(RamFuzzControl::obj) obj) {}
 
+  /// Number of bits to shift left the user-provided location before logging.
+  /// Shifting allows bump_loc() to work.
+  static constexpr unsigned short locshift = 10;
+
+  /// Pushes pos (shifted left by locshift) to the top of the location stack.
+  /// Any values subsequently generated are associated with pos.
+  void push_loc(size_t loc) { locations.push_back(loc << locshift); }
+
+  /// Pops the location stack.
+  void pop_loc() { locations.pop_back(); }
+
+  /// Increments the location at the top of the stack.  Used by runtime to
+  /// distinguish between multiple values generated in the same runtime
+  /// function.  The values will have slightly different locations within the
+  /// overall location indicated by the caller of the runtime function.
+  void bump_loc() { locations.back()++; }
+
   friend class region;
   /// RAII for region (a continuous subset of the log that can be replaced by a
   /// different execution path during replay without affecting the replay of the
@@ -220,6 +248,7 @@ private:
         to_skip = skip(ilog_ctl);
     }
     olog.write(reinterpret_cast<char *>(&val), sizeof(val));
+    olog_train << locations.back() << ' ' << val << std::endl;
     return val;
   }
 
@@ -256,7 +285,7 @@ private:
   std::ranlux24 rgen = std::ranlux24(std::random_device{}());
 
   /// Output log and its index.
-  std::ofstream olog, olog_index;
+  std::ofstream olog, olog_index, olog_train;
 
   /// Region ID high water mark.
   uint64_t next_reg = 1;
@@ -266,6 +295,9 @@ private:
 
   /// If valid, holds the position of the next ilog part to skip.
   skip to_skip;
+
+  /// Stack of source locations.
+  std::vector<size_t> locations;
 };
 
 /// The upper limit on how many times to spin the method roulette in generated
@@ -283,6 +315,7 @@ constexpr unsigned depthlimit = 20;
 /// constructors).
 template <typename ramfuzz_control, int enable_if = ramfuzz_control::ccount>
 ramfuzz_control construct(ramfuzz::runtime::gen &g) {
+  g.bump_loc();
   return ramfuzz_control(g, g.between(0u, ramfuzz_control::ccount - 1));
 }
 
@@ -292,6 +325,7 @@ ramfuzz_control construct(ramfuzz::runtime::gen &g) {
 template <typename ramfuzz_control,
           ramfuzz_control (*makefun)(runtime::gen &) = &ramfuzz_control::make>
 ramfuzz_control construct(ramfuzz::runtime::gen &g) {
+  g.bump_loc();
   return makefun(g);
 }
 
@@ -303,10 +337,13 @@ ramfuzz_control spin_roulette(ramfuzz::runtime::gen &g) {
   if (!ctl)
     return ctl;
   if (ramfuzz_control::mcount) {
+    g.bump_loc();
     const auto mspins = reg.between(0u, ::ramfuzz::runtime::spinlimit);
-    for (auto i = 0u; i < mspins; ++i)
+    for (auto i = 0u; i < mspins; ++i) {
+      g.bump_loc();
       (ctl.*
        ctl.mroulette[g.between(0u, ramfuzz_control::control::mcount - 1)])();
+    }
   }
   return ctl;
 }
@@ -343,9 +380,12 @@ public:
 
   control(runtime::gen &g, unsigned) : g(g) {
     runtime::gen::region reg(g);
+    g.bump_loc();
     obj.resize(reg.between(0u, 1000u));
-    for (int i = 0; i < obj.size(); ++i)
+    for (int i = 0; i < obj.size(); ++i) {
+      g.bump_loc();
       g.set_any(obj[i]);
+    }
   }
 
   Tp *release() {
@@ -379,9 +419,12 @@ public:
   std::basic_string<CharT, Traits, Allocator> obj;
   control(runtime::gen &g, unsigned) : g(g) {
     runtime::gen::region reg(g);
+    g.bump_loc();
     obj.resize(reg.between(1u, 1000u));
-    for (int i = 0; i < obj.size() - 1; ++i)
+    for (int i = 0; i < obj.size() - 1; ++i) {
+      g.bump_loc();
       obj[i] = g.between<CharT>(1, std::numeric_limits<CharT>::max());
+    }
     obj.back() = CharT(0);
   }
   operator bool() const { return true; }
