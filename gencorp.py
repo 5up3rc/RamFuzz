@@ -18,8 +18,8 @@
 
 Usage: $0 <executable> <count>
 
-Runs <executable> and assumes it creates fuzzlog.tr.  If the executable's exit
-status is 0, renames fuzzlog.tr to 1.s.  Otherwise, renames fuzzlog.tr to 1.f.
+Runs <executable> and assumes it creates fuzzlog.t.  If the executable's exit
+status is 0, renames fuzzlog.t to 1.s.  Otherwise, renames fuzzlog.t to 1.f.
 Repeats <count> times, incrementing the number in the .s/.f file name.
 
 After <count> runs, this leaves a set of .s (for success) and .f (for failure)
