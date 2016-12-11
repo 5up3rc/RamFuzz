@@ -31,6 +31,12 @@
 namespace ramfuzz {
 namespace runtime {
 
+/// Exception thrown when there's a file-access error.
+struct file_error : public std::runtime_error {
+  explicit file_error(const std::string &s) : runtime_error(s) {}
+  explicit file_error(const char *s) : runtime_error(s) {}
+};
+
 /// Generates values for RamFuzz code.  Can be used in the "generate" or
 /// "replay" mode.  In "generate" mode, values are created at random and logged.
 /// In "replay" mode, values are read from a previously generated log.  This
@@ -80,16 +86,11 @@ class gen {
 public:
   /// Values will be generated and logged in ologname (with index in
   /// ologname.i).
-  gen(const std::string &ologname = "fuzzlog")
-      : runmode(generate), olog(ologname), olog_index(ologname + ".i"),
-        olog_train(ologname + ".t"), locations(1, 0) {}
+  gen(const std::string &ologname = "fuzzlog");
 
   /// Values will be replayed from ilogname (controlled by ilogname.c) and
   /// logged into ologname.
-  gen(const std::string &ilogname, const std::string &ologname)
-      : runmode(replay), olog(ologname), olog_index(ologname + ".i"),
-        olog_train(ologname + ".t"), ilog(ilogname), ilog_ctl(ilogname + ".c"),
-        to_skip(ilog_ctl), locations(1, 0) {}
+  gen(const std::string &ilogname, const std::string &ologname);
 
   /// Interprets kth command-line argument.  If the argument exists (ie, k <
   /// argc), values will be replayed from file named argv[k], controlled by
@@ -100,23 +101,7 @@ public:
   /// This makes it convenient for main(argc, argv) to invoke gen(argc, argv),
   /// yielding a program that either generates its values (if no command-line
   /// arguments) or replays the log file named by its first argument.
-  gen(int argc, const char *const *argv, size_t k = 1) : locations(1, 0) {
-    if (k < argc && argv[k]) {
-      runmode = replay;
-      const std::string argstr(argv[k]);
-      ilog.open(argstr);
-      ilog_ctl.open(argstr + ".c");
-      to_skip = skip(ilog_ctl);
-      olog.open(argstr + "+");
-      olog_index.open(argstr + "+.i");
-      olog_train.open(argstr + "+.t");
-    } else {
-      runmode = generate;
-      olog.open("fuzzlog");
-      olog_index.open("fuzzlog.i");
-      olog_train.open("fuzzlog.t");
-    }
-  }
+  gen(int argc, const char *const *argv, size_t k = 1);
 
   /// Returns an unconstrained random value of numeric type T, logs it, and
   /// indexes it.  When replaying the log, this value could be modified without
@@ -462,6 +447,10 @@ public:
 };
 } // namespace rfstd_basic_istream
 
+template <typename Tp, typename Alloc>
+const typename rfstd_basic_istream::control<Tp, Alloc>::mptr
+    rfstd_basic_istream::control<Tp, Alloc>::control::mroulette[] = {};
+
 namespace rfstd_basic_ostream {
 template <class CharT, class Traits = std::char_traits<CharT>> struct control {
   std::basic_ostringstream<CharT, Traits> obj;
@@ -473,6 +462,10 @@ template <class CharT, class Traits = std::char_traits<CharT>> struct control {
   static constexpr unsigned ccount = 1;
 };
 } // namespace rfstd_basic_ostream
+
+template <typename Tp, typename Alloc>
+const typename rfstd_basic_ostream::control<Tp, Alloc>::mptr
+    rfstd_basic_ostream::control<Tp, Alloc>::control::mroulette[] = {};
 
 namespace runtime {
 // Must be defined after rfstd_vector.

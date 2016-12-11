@@ -52,11 +52,63 @@ template <typename RealT> RealT rbetween(RealT lo, RealT hi, ranlux24 &gen) {
 namespace ramfuzz {
 namespace runtime {
 
+gen::gen(const string &ologname)
+    : runmode(generate), olog(ologname), olog_index(ologname + ".i"),
+      olog_train(ologname + ".t"), locations(1, 0) {
+  if (!olog)
+    throw file_error("Cannot open " + ologname);
+  if (!olog_index)
+    throw file_error("Cannot open " + ologname + ".i");
+  if (!olog_train)
+    throw file_error("Cannot open " + ologname + ".t");
+}
+
+gen::gen(const string &ilogname, const string &ologname)
+    : runmode(replay), olog(ologname), olog_index(ologname + ".i"),
+      ilog(ilogname), ilog_ctl(ilogname + ".c"), to_skip(ilog_ctl),
+      locations(1, 0) {
+  if (!olog)
+    throw file_error("Cannot open " + ologname);
+  if (!olog_index)
+    throw file_error("Cannot open " + ologname + ".i");
+  if (!ilog)
+    throw file_error("Cannot open " + ilogname);
+}
+
+gen::gen(int argc, const char *const *argv, size_t k) : locations(1, 0) {
+  if (k < argc && argv[k]) {
+    runmode = replay;
+    const string argstr(argv[k]);
+    ilog.open(argstr);
+    if (!ilog)
+      throw file_error("Cannot open " + argstr);
+    ilog_ctl.open(argstr + ".c");
+    to_skip = skip(ilog_ctl);
+    olog.open(argstr + "+");
+    if (!olog)
+      throw file_error("Cannot open " + argstr + "+");
+    olog_index.open(argstr + "+.i");
+    if (!olog_index)
+      throw file_error("Cannot open " + argstr + "+.i");
+    olog_train.open(argstr + "+.t");
+    if (!olog_train)
+      throw file_error("Cannot open " + argstr + "+.t");
+  } else {
+    runmode = generate;
+    olog.open("fuzzlog");
+    if (!olog)
+      throw file_error("Cannot open fuzzlog");
+    olog_index.open("fuzzlog.i");
+    if (!olog_index)
+      throw file_error("Cannot open fuzzlog.i");
+  }
+}
+
 void gen::set_any(std::vector<bool>::reference obj) { obj = any<bool>(); }
 
-template <> void runtime::gen::set_any<std::string>(std::string &obj) {
-  rfstd_basic_string::control<std::string::value_type, std::string::traits_type,
-                              std::string::allocator_type>
+template <> void runtime::gen::set_any<string>(string &obj) {
+  rfstd_basic_string::control<string::value_type, string::traits_type,
+                              string::allocator_type>
       ctl(*this, 0);
   obj = ctl.obj;
 }
