@@ -101,6 +101,9 @@ gen::gen(int argc, const char *const *argv, size_t k) : locations(1, 0) {
     olog_index.open("fuzzlog.i");
     if (!olog_index)
       throw file_error("Cannot open fuzzlog.i");
+    olog_train.open("fuzzlog.t");
+    if (!olog_train)
+      throw file_error("Cannot open fuzzlog.t");
   }
 }
 
