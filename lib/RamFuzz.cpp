@@ -612,14 +612,21 @@ void RamFuzz::gen_method(const Twine &rfname, const CXXMethodDecl *M,
                        .getLocalUnqualifiedType();
     tie(vartype, ptrcnt[ramcount]) = ultimate_pointee(vartype, ctx);
     if (vartype->isScalarType()) {
-      outc << "  " << vartype.stream(prtpol) << " ram" << ramcount
-           << " = g.any<" << vartype.stream(prtpol) << ">();\n";
+      const auto tystr = vartype.stream(prtpol);
+      outc << "  " << tystr << (ptrcnt[ramcount] ? "*" : "") << " ram"
+           << ramcount << " = ";
+      if (ptrcnt[ramcount])
+        outc << "new " << tystr << '(';
+      outc << "g.any<" << tystr << ">()" << (ptrcnt[ramcount] ? ")" : "")
+           << ";\n";
       register_enum(*vartype);
     } else if (const auto varcls = vartype->getAsCXXRecordDecl()) {
       const auto rfvar = Twine("rfram") + Twine(ramcount);
       gen_object(varcls, rfvar, "g", rfname,
                  isa<CXXConstructorDecl>(M) ? "nullptr" : "");
-      outc << "  auto& ram" << ramcount << " = " << rfvar << ".obj;\n";
+      outc << "  auto" << (ptrcnt[ramcount] ? "" : "&") << " ram" << ramcount
+           << " = " << rfvar << (ptrcnt[ramcount] ? ".release()" : ".obj")
+           << ";\n";
     } else if (vartype->isVoidType()) {
       assert(ptrcnt[ramcount]); // Must've been a void*.
       outc << "  auto rfram" << ramcount
@@ -627,14 +634,13 @@ void RamFuzz::gen_method(const Twine &rfname, const CXXMethodDecl *M,
       outc << "  " << (vartype.isLocalConstQualified() ? "const " : "")
            << "void* ram" << ramcount << " = rfram" << ramcount
            << ".obj.data();\n";
-      // Because the ram variable is already a pointer, one less indirection is
-      // needed below.
-      ptrcnt[ramcount]--;
     }
-    for (auto i = 0u; i < ptrcnt[ramcount]; ++i) {
+    // Construct pointer-to-pointer, if required.  NB: the initial pointer was
+    // already generated above.
+    for (auto i = 1u; i < ptrcnt[ramcount]; ++i) {
       outc << "  auto ram" << ramcount << "p" << i << " = std::addressof(ram"
            << ramcount;
-      if (i)
+      if (i > 1)
         outc << "p" << i - 1;
       outc << ");\n";
     }
@@ -653,7 +659,7 @@ void RamFuzz::gen_method(const Twine &rfname, const CXXMethodDecl *M,
     outc << "  obj." << *M << "(";
   for (auto i = 1u; i <= ramcount; ++i) {
     outc << (i == 1 ? "" : ", ") << "ram" << i;
-    if (ptrcnt[i])
+    if (ptrcnt[i] > 1)
       outc << "p" << ptrcnt[i] - 1;
   }
   outc << ");\n";

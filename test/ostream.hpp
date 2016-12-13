@@ -24,4 +24,5 @@ public:
          const std::string &str) {
     os << i << f << c << str << c << i;
   }
+  void f(std::ostream *os, bool b) { *os << b; }
 };

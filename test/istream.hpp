@@ -25,4 +25,9 @@ public:
     while (s >> c)
       content.push_back(c);
   }
+  void f(std::istream *s) {
+    char c;
+    while (*s >> c)
+      content.push_back(c);
+  }
 };

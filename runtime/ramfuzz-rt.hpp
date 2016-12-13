@@ -373,12 +373,7 @@ public:
     }
   }
 
-  Tp *release() {
-    const auto sz = obj.size();
-    Tp *cp = new Tp[sz];
-    std::copy(obj.cbegin(), obj.cend(), cp);
-    return cp;
-  }
+  std::vector<Tp, Alloc> *release() { return new std::vector<Tp, Alloc>(obj); }
 
   operator bool() const { return true; }
 
@@ -440,6 +435,11 @@ public:
   std::basic_istringstream<CharT, Traits> obj;
   control(runtime::gen &g, unsigned) : g(g), strctl(g, 0), obj(strctl.obj) {}
   operator bool() const { return true; }
+  std::basic_istream<CharT, Traits> *release() {
+    auto r = new std::basic_istringstream<CharT, Traits>;
+    *r = std::move(obj);
+    return r;
+  }
   using mptr = void (control::*)();
   static constexpr unsigned mcount = 0;
   static const mptr mroulette[mcount];
@@ -456,6 +456,11 @@ template <class CharT, class Traits = std::char_traits<CharT>> struct control {
   std::basic_ostringstream<CharT, Traits> obj;
   control(runtime::gen &g, unsigned) {}
   operator bool() const { return true; }
+  std::basic_ostream<CharT, Traits> *release() {
+    auto r = new std::basic_ostringstream<CharT, Traits>;
+    *r = std::move(obj);
+    return r;
+  }
   using mptr = void (control::*)();
   static constexpr unsigned mcount = 0;
   static const mptr mroulette[mcount];
